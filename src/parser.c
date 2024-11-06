@@ -1900,7 +1900,7 @@ void save_implicit_weights(layer l, FILE *fp)
     fwrite(l.weights, sizeof(float), num, fp);
 }
 
-void save_convolutional_weights(layer l, FILE *fp)
+void save_convolutional_weights(layer l, FILE *fp) // change this to check for unchanged layers-adrian
 {
     if(l.binary){
         //save_convolutional_weights_binary(l, fp);
@@ -1911,14 +1911,14 @@ void save_convolutional_weights(layer l, FILE *fp)
         pull_convolutional_layer(l);
     }
 #endif
-    int num = l.nweights;
-    fwrite(l.biases, sizeof(float), l.n, fp);
+    int num = l.nweights; // l.nweights is number of weights in layer-adrian 
+    fwrite(l.biases, sizeof(float), l.n, fp); //l.biases is layer biases-adrian
     if (l.batch_normalize){
         fwrite(l.scales, sizeof(float), l.n, fp);
         fwrite(l.rolling_mean, sizeof(float), l.n, fp);
         fwrite(l.rolling_variance, sizeof(float), l.n, fp);
     }
-    fwrite(l.weights, sizeof(float), num, fp);
+    fwrite(l.weights, sizeof(float), num, fp); // l.weight is layer weights-adrian
     //if(l.adam){
     //    fwrite(l.m, sizeof(float), num, fp);
     //    fwrite(l.v, sizeof(float), num, fp);
@@ -1979,7 +1979,7 @@ void save_connected_weights(layer l, FILE *fp)
     }
 }
 
-void save_weights_upto(network net, char *filename, int cutoff, int save_ema)
+void save_weights_upto(network net, char *filename, int cutoff, int save_ema) // can also check for layer changes here -adrian 
 {
 #ifdef GPU
     if(net.gpu_index >= 0){
@@ -2003,7 +2003,7 @@ void save_weights_upto(network net, char *filename, int cutoff, int save_ema)
     for(i = 0; i < net.n && i < cutoff; ++i){
         layer l = net.layers[i];
         if (l.type == CONVOLUTIONAL && l.share_layer == NULL) {
-            if (save_ema) {
+            if (save_ema) {    // another if statement can be added after this to check for unchanged weights
                 save_convolutional_weights_ema(l, fp);
             }
             else {
