@@ -1900,8 +1900,28 @@ void save_implicit_weights(layer l, FILE *fp)
     fwrite(l.weights, sizeof(float), num, fp);
 }
 
+
+
+
+
+
+
+
+
 void save_convolutional_weights(layer l, FILE *fp) // change this to check for unchanged layers-adrian
 {
+
+    static float *previous_weights = NULL;//added by adrian to store previous weights
+    static int previous_num_weights = 0;//cont.
+    static int layer_counter = 0;
+
+    // Open the debug file for writing unchanged layers (append mode to keep adding info)
+    FILE *debug_fp = fopen("unchanged_layers_debug.txt", "a");
+    if (!debug_fp) {
+        printf("Error opening debug file!\n");
+        return;
+    }//added by adrian^
+
     if(l.binary){
         //save_convolutional_weights_binary(l, fp);
         //return;
@@ -1911,6 +1931,39 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
         pull_convolutional_layer(l);
     }
 #endif
+
+
+//added adrian (in progress)
+if (previous_weights != NULL && previous_num_weights == l.nweights) {
+        int unchanged = 1; // Flag to check if weights are unchanged
+        for (int i = 0; i < l.nweights; ++i) {
+            if (previous_weights[i] != l.weights[i]) {
+                unchanged = 0; // Weights have changed
+                break;
+            }
+        }
+
+        if (unchanged) {
+            // Print a message indicating the layer is unchanged
+            printf("Layer %d weights are unchanged.\n", layer_counter);
+
+            // Save unchanged layer details to the debug file
+            fprintf(debug_fp, "Layer %d weights are unchanged.\n", layer_counter);
+            fprintf(debug_fp, "Biases:\n");
+            for (int i = 0; i < l.n; ++i) {
+                fprintf(debug_fp, "%f ", l.biases[i]);
+            }
+            fprintf(debug_fp, "\nWeights:\n");
+            for (int i = 0; i < l.nweights; ++i) {
+                fprintf(debug_fp, "%f ", l.weights[i]);
+            }
+            fprintf(debug_fp, "\n\n"); // Add a newline for separation
+        } else {
+            printf("Layer %d weights have changed.\n", layer_counter);
+        }
+    }
+// added adrian^
+
     int num = l.nweights; // l.nweights is number of weights in layer-adrian 
     fwrite(l.biases, sizeof(float), l.n, fp); //l.biases is layer biases-adrian
     if (l.batch_normalize){
@@ -1923,7 +1976,32 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
     //    fwrite(l.m, sizeof(float), num, fp);
     //    fwrite(l.v, sizeof(float), num, fp);
     //}
+
+
+//added adrian (in progress)
+// Update the previous_weights variable with the current weights
+    if (previous_weights != NULL) {
+        free(previous_weights); // Free the old weights
+    }
+    previous_weights = (float *)malloc(num * sizeof(float)); // Allocate memory for the current weights
+    if (previous_weights != NULL) {
+        memcpy(previous_weights, l.weights, num * sizeof(float)); // Copy the current weights
+        previous_num_weights = num;
+    }
+
+    layer_counter++;
+
+    fclose(debug_fp);
+//added adrian^
+
 }
+
+
+
+
+
+
+
 
 void save_convolutional_weights_ema(layer l, FILE *fp)
 {
@@ -2004,7 +2082,12 @@ void save_weights_upto(network net, char *filename, int cutoff, int save_ema) //
         layer l = net.layers[i];
         if (l.type == CONVOLUTIONAL && l.share_layer == NULL) {
             if (save_ema) {    // another if statement can be added after this to check for unchanged weights
-                save_convolutional_weights_ema(l, fp);
+                /*
+                if(l.weights =! ){           //trying implementation 
+                    save_convolutional_weights_ema(l, fp);
+                }*/
+
+                save_convolutional_weights_ema(l, fp); // this is original code
             }
             else {
                 save_convolutional_weights(l, fp);
