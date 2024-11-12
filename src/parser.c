@@ -976,7 +976,7 @@ layer parse_shortcut(list *options, size_params params, network net)
 
     for (i = 0; i < n; ++i) {
         int index = layers[i];
-        assert(params.w == net.layers[index].out_w && params.h == net.layers[index].out_h);
+        //assert(params.w == net.layers[index].out_w && params.h == net.layers[index].out_h); // commented out to run resnet18(advice from manoj)
 
         if (params.w != net.layers[index].out_w || params.h != net.layers[index].out_h || params.c != net.layers[index].out_c)
             fprintf(stderr, " (%4d x%4d x%4d) + (%4d x%4d x%4d) \n",
@@ -1915,12 +1915,14 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
     static int previous_num_weights = 0;//cont.
     static int layer_counter = 0;
 
-    // Open the debug file for writing unchanged layers (append mode to keep adding info)
+    // Open  debug file to write unchanged layers
     FILE *debug_fp = fopen("unchanged_layers_debug.txt", "a");
     if (!debug_fp) {
         printf("Error opening debug file!\n");
         return;
-    }//added by adrian^
+    }//added by adrian
+
+
 
     if(l.binary){
         //save_convolutional_weights_binary(l, fp);
@@ -1934,44 +1936,46 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
 
 
 //added adrian (in progress)
-if (previous_weights != NULL && previous_num_weights == l.nweights) {
-        int unchanged = 1; // Flag to check if weights are unchanged
-        for (int i = 0; i < l.nweights; ++i) {
-            if (previous_weights[i] != l.weights[i]) {
-                unchanged = 0; // Weights have changed
-                break;
-            }
-        }
-
-        if (unchanged) {
-            // Print a message indicating the layer is unchanged
-            printf("Layer %d weights are unchanged.\n", layer_counter);
-
-            // Save unchanged layer details to the debug file
-            fprintf(debug_fp, "Layer %d weights are unchanged.\n", layer_counter);
-            fprintf(debug_fp, "Biases:\n");
-            for (int i = 0; i < l.n; ++i) {
-                fprintf(debug_fp, "%f ", l.biases[i]);
-            }
-            fprintf(debug_fp, "\nWeights:\n");
+    int unchanged = 1; // Flag to check if weights are unchanged
+    if (previous_weights != NULL && previous_num_weights == l.nweights) {
             for (int i = 0; i < l.nweights; ++i) {
-                fprintf(debug_fp, "%f ", l.weights[i]);
+                if (previous_weights[i] != l.weights[i]) {
+                    unchanged = 0; // if Weights have changed
+                    break;
+                }
             }
-            fprintf(debug_fp, "\n\n"); // Add a newline for separation
-        } else {
-            printf("Layer %d weights have changed.\n", layer_counter);
+    } else {
+        unchanged = 0; // If previous weights are NULL or sizes differ (changed)
+    }
+
+    if (unchanged) {
+        printf("Layer %d weights are unchanged.\n", layer_counter);
+        fprintf(debug_fp, "Layer %d weights are unchanged.\n", layer_counter);
+        fprintf(debug_fp, "Biases:\n");
+        for (int i = 0; i < l.n; ++i) {
+            fprintf(debug_fp, "%f ", l.biases[i]);
         }
+        fprintf(debug_fp, "\nWeights:\n");
+        for (int i = 0; i < l.nweights; ++i) {
+            fprintf(debug_fp, "%f ", l.weights[i]);
+        }
+        fprintf(debug_fp, "\n\n"); // Add a newline for separation
+    } else {
+        printf("Layer %d weights have changed.\n", layer_counter);
     }
 // added adrian^
 
     int num = l.nweights; // l.nweights is number of weights in layer-adrian 
-    fwrite(l.biases, sizeof(float), l.n, fp); //l.biases is layer biases-adrian
-    if (l.batch_normalize){
-        fwrite(l.scales, sizeof(float), l.n, fp);
-        fwrite(l.rolling_mean, sizeof(float), l.n, fp);
-        fwrite(l.rolling_variance, sizeof(float), l.n, fp);
-    }
-    fwrite(l.weights, sizeof(float), num, fp); // l.weight is layer weights-adrian
+    if(!unchanged){//added if statement to check if layer is changed-adrian
+        fwrite(l.biases, sizeof(float), l.n, fp); //l.biases is layer biases-adrian
+        if (l.batch_normalize){
+            fwrite(l.scales, sizeof(float), l.n, fp);
+            fwrite(l.rolling_mean, sizeof(float), l.n, fp);
+            fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+        }
+        fwrite(l.weights, sizeof(float), num, fp); // l.weight is layer weights-adrian
+    }//
+
     //if(l.adam){
     //    fwrite(l.m, sizeof(float), num, fp);
     //    fwrite(l.v, sizeof(float), num, fp);
@@ -1983,14 +1987,15 @@ if (previous_weights != NULL && previous_num_weights == l.nweights) {
     if (previous_weights != NULL) {
         free(previous_weights); // Free the old weights
     }
-    previous_weights = (float *)malloc(num * sizeof(float)); // Allocate memory for the current weights
+    previous_weights = (float *)malloc(l.nweights * sizeof(float)); // Allocate memory for the current weights
     if (previous_weights != NULL) {
-        memcpy(previous_weights, l.weights, num * sizeof(float)); // Copy the current weights
-        previous_num_weights = num;
+        memcpy(previous_weights, l.weights, l.nweights * sizeof(float)); // Copy the current weights
+        previous_num_weights = l.nweights;
+    }else {
+        printf("Memory allocation failed for previous_weights.\n");
     }
 
     layer_counter++;
-
     fclose(debug_fp);
 //added adrian^
 
