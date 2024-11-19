@@ -1916,12 +1916,11 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
     static int layer_counter = 0;
 
     // Open  debug file to write unchanged layers
-    FILE *debug_fp = fopen("unchanged_layers_debug.txt", "a");
-    if (!debug_fp) {
-        printf("Error opening debug file!\n");
-        return;
-    }//added by adrian
-
+    // FILE *debug_fp = fopen("unchanged_layers_debug.txt", "a");
+    // if (!debug_fp) {
+    //     printf("Error opening debug file!\n");
+    //     return;
+    // }//added by adrian
 
 
     if(l.binary){
@@ -1936,45 +1935,84 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
 
 
 //added adrian (in progress)
-    int unchanged = 1; // Flag to check if weights are unchanged
+    // int unchanged = 1; // Flag to check if weights are unchanged
+    int negligible_change = 1; // check for negligable change (could just use this as a flag in the future)
+    float tolerance = 0.0001f; // tolerance threshold (adjust for testing)
+
     if (previous_weights != NULL && previous_num_weights == l.nweights) {
             for (int i = 0; i < l.nweights; ++i) {
-                if (previous_weights[i] != l.weights[i]) {
-                    unchanged = 0; // if Weights have changed
+                float diff = fabs(previous_weights[i]- l.weights[i]);   
+                // if (previous_weights[i] != l.weights[i]) {
+                //     unchanged = 0; // if Weights have changed
+                //     break;
+                // }
+                if (diff > tolerance){
+                    negligible_change = 0; //significant change
                     break;
                 }
+                
             }
     } else {
-        unchanged = 0; // If previous weights are NULL or sizes differ (changed)
+        // unchanged = 0; // If previous weights are NULL or sizes differ (changed)
+        negligible_change = 0;
     }
 
-    if (unchanged) {
-        printf("Layer %d weights are unchanged.\n", layer_counter);
-        fprintf(debug_fp, "Layer %d weights are unchanged.\n", layer_counter);
-        fprintf(debug_fp, "Biases:\n");
-        for (int i = 0; i < l.n; ++i) {
-            fprintf(debug_fp, "%f ", l.biases[i]);
-        }
-        fprintf(debug_fp, "\nWeights:\n");
-        for (int i = 0; i < l.nweights; ++i) {
-            fprintf(debug_fp, "%f ", l.weights[i]);
-        }
-        fprintf(debug_fp, "\n\n"); // Add a newline for separation
+
+
+// if no change or negligible change
+    if (negligible_change) {
+        printf("Layer %d weights are unchanged or have negligible changes.\n", layer_counter);
+        // fprintf(debug_fp, "Layer %d weights have negligible changes.\n", layer_counter);
     } else {
-        printf("Layer %d weights have changed.\n", layer_counter);
+        printf("Layer %d weights have significant changes.\n", layer_counter);
     }
-// added adrian^
 
-    int num = l.nweights; // l.nweights is number of weights in layer-adrian 
-    if(!unchanged){//added if statement to check if layer is changed-adrian
-        fwrite(l.biases, sizeof(float), l.n, fp); //l.biases is layer biases-adrian
-        if (l.batch_normalize){
-            fwrite(l.scales, sizeof(float), l.n, fp);
-            fwrite(l.rolling_mean, sizeof(float), l.n, fp);
-            fwrite(l.rolling_variance, sizeof(float), l.n, fp);
-        }
-        fwrite(l.weights, sizeof(float), num, fp); // l.weight is layer weights-adrian
-    }//
+    // if (unchanged) {
+    //     printf("Layer %d weights are unchanged.\n", layer_counter);
+        // fprintf(debug_fp, "Layer %d weights are unchanged.\n", layer_counter);
+        // fprintf(debug_fp, "Biases:\n");
+    //     for (int i = 0; i < l.n; ++i) {
+    //         fprintf(debug_fp, "%f ", l.biases[i]);
+    //     }
+    //     fprintf(debug_fp, "\nWeights:\n");
+    //     for (int i = 0; i < l.nweights; ++i) {
+    //         fprintf(debug_fp, "%f ", l.weights[i]);
+    //     }
+    //     fprintf(debug_fp, "\n\n"); // Add a newline for separation
+    // } else {
+    //     printf("Layer %d weights have changed.\n", layer_counter);
+    // }
+
+    // Print out the weight values for the layer
+    printf("Layer %d weight values:\n", layer_counter);
+    for (int i = 0; i < l.nweights; ++i) {
+        printf("%f ", l.weights[i]);
+    }
+
+
+
+// added adrian^
+    // int num = l.nweights; // l.nweights is number of weights in layer-adrian 
+    // if(!unchanged){//added if statement to check if layer is changed-adrian
+    //     fwrite(l.biases, sizeof(float), l.n, fp); //l.biases is layer biases-adrian
+    //     if (l.batch_normalize){
+    //         fwrite(l.scales, sizeof(float), l.n, fp);
+    //         fwrite(l.rolling_mean, sizeof(float), l.n, fp);
+    //         fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+    //     }
+    //     fwrite(l.weights, sizeof(float), num, fp); // l.weight is layer weights-adrian
+    // }//
+    // if (!negligible_change) {
+    //         fwrite(l.biases, sizeof(float), l.n, fp);
+    //         if (l.batch_normalize) {
+    //             fwrite(l.scales, sizeof(float), l.n, fp);
+    //             fwrite(l.rolling_mean, sizeof(float), l.n, fp);
+    //             fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+    //         }
+    //         fwrite(l.weights, sizeof(float), l.nweights, fp);
+    //     }
+
+
 
     //if(l.adam){
     //    fwrite(l.m, sizeof(float), num, fp);
@@ -1996,7 +2034,7 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
     }
 
     layer_counter++;
-    fclose(debug_fp);
+    // fclose(debug_fp); //(debug file closing)
 //added adrian^
 
 }
