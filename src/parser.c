@@ -1905,7 +1905,17 @@ void save_implicit_weights(layer l, FILE *fp)
 
 
 
+// added by adrian 
+int generate_composite_key(layer l) {
+    char key_string[256];
+    snprintf(key_string, sizeof(key_string), "%d_%d_%d_%d_%d_%d", l.type, l.n, l.size, l.stride, l.inputs, l.outputs);
+    int hash = 0;
 
+    for (int i = 0; key_string[i] != '\0'; i++) {
+        hash = hash * 31 + key_string[i]; // Simple hash function
+    }
+    return hash;
+}
 
 
 void save_convolutional_weights(layer l, FILE *fp) // change this to check for unchanged layers-adrian
@@ -1913,14 +1923,79 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
 
     static float *previous_weights = NULL;//added by adrian to store previous weights
     static int previous_num_weights = 0;//cont.
-    static int layer_counter = 0;
 
-    // Open  debug file to write unchanged layers
-    // FILE *debug_fp = fopen("unchanged_layers_debug.txt", "a");
-    // if (!debug_fp) {
-    //     printf("Error opening debug file!\n");
-    //     return;
-    // }//added by adrian
+    // new code to check for original layers
+    //
+    //
+    //
+
+    #define MAX_LAYERS 29
+    static int seen_keys[MAX_LAYERS] = {0}; // Tracks processed layers
+    static int layer_counter = 0;    // Tracks unique layers
+
+
+    // Generate composite key for the layer
+    int layer_key = generate_composite_key(l);
+    int layer_index = -1;
+
+    printf("Layer Properties: Type=%d, Filters=%d, Size=%d, Stride=%d, Inputs=%d\n",l.type, l.n, l.size, l.stride, l.inputs);
+    printf("Generated Composite Key: %d\n", layer_key);
+
+
+    // Check if this layer has already been processed
+    for (int i = 0; i < layer_counter; ++i) {
+        if (seen_keys[i] == layer_key) {
+            layer_index = i; // Retrieve the corresponding layer index
+            break;
+        }
+    }
+
+      // If layer is new, mark it as seen and assign a new index
+    if (layer_index == -1) {
+        if (layer_counter < MAX_LAYERS) {
+            seen_keys[layer_counter] = layer_key;
+            layer_index = layer_counter;
+            layer_counter++;
+        } else {
+            printf("Exceeded maximum layer tracking capacity.\n");
+            return;
+        }
+    }
+
+
+    //
+    //
+    //
+
+
+    //added adrian (in progress)
+
+
+    float totalDiff = 0.0f; 
+    float tolerance = 0.01f; 
+
+    if (previous_weights != NULL && previous_num_weights == l.nweights) { // if there are previous weights to compare and if the number of weights are the same
+        for (int i = 0; i < l.nweights; ++i) { // CHANGED: 
+            float diff = fabs(previous_weights[i] - l.weights[i]); // gets absolute difference of the weight at every index
+            totalDiff += diff; // adds diff to total diff
+        }
+        float averageDiff = totalDiff / l.nweights; // calculate average difference
+
+
+        printf("Layer %d: Total Diff: %f, Avg Diff: %f, Tolerance: %f\n", 
+                layer_index, totalDiff, averageDiff, tolerance); 
+
+        if (averageDiff <= tolerance) { 
+            printf("Layer %d weights are unchanged or have negligible changes. Avg Diff: %f\n", 
+                    layer_index, averageDiff); 
+        } else {
+            printf("Layer %d weights have significant changes. Total Diff: %f, Avg Diff: %f\n", 
+                    layer_index, totalDiff, averageDiff); 
+        }
+    } else {
+        printf("Layer %d: No previous weights for comparison.\n", layer_index); 
+    }
+
 
 
     if(l.binary){
@@ -1934,83 +2009,54 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
 #endif
 
 
-//added adrian (in progress)
-    // int unchanged = 1; // Flag to check if weights are unchanged
-    int negligible_change = 1; // check for negligable change (could just use this as a flag in the future)
-    float tolerance = 0.0001f; // tolerance threshold (adjust for testing)
-
-    if (previous_weights != NULL && previous_num_weights == l.nweights) {
-            for (int i = 0; i < l.nweights; ++i) {
-                float diff = fabs(previous_weights[i]- l.weights[i]);   
-                // if (previous_weights[i] != l.weights[i]) {
-                //     unchanged = 0; // if Weights have changed
-                //     break;
-                // }
-                if (diff > tolerance){
-                    negligible_change = 0; //significant change
-                    break;
-                }
-                
-            }
-    } else {
-        // unchanged = 0; // If previous weights are NULL or sizes differ (changed)
-        negligible_change = 0;
-    }
 
 
 
-// if no change or negligible change
-    if (negligible_change) {
-        printf("Layer %d weights are unchanged or have negligible changes.\n", layer_counter);
-        // fprintf(debug_fp, "Layer %d weights have negligible changes.\n", layer_counter);
-    } else {
-        printf("Layer %d weights have significant changes.\n", layer_counter);
-    }
+    //Debugging prints below
+    //
+    //
 
-    // if (unchanged) {
-    //     printf("Layer %d weights are unchanged.\n", layer_counter);
-        // fprintf(debug_fp, "Layer %d weights are unchanged.\n", layer_counter);
-        // fprintf(debug_fp, "Biases:\n");
-    //     for (int i = 0; i < l.n; ++i) {
-    //         fprintf(debug_fp, "%f ", l.biases[i]);
-    //     }
-    //     fprintf(debug_fp, "\nWeights:\n");
-    //     for (int i = 0; i < l.nweights; ++i) {
-    //         fprintf(debug_fp, "%f ", l.weights[i]);
-    //     }
-    //     fprintf(debug_fp, "\n\n"); // Add a newline for separation
-    // } else {
-    //     printf("Layer %d weights have changed.\n", layer_counter);
-    // }
+
+    //print all weighrs per layer
 
     // Print out the weight values for the layer
-    printf("Layer %d weight values:\n", layer_counter);
-    for (int i = 0; i < l.nweights; ++i) {
-        printf("%f ", l.weights[i]);
-    }
+    // printf("Layer %d weight values:\n", layer_counter);
+    // for (int i = 0; i < l.nweights; ++i) {
+    //     printf("%f ", l.weights[i]);
+    // }
+    // printf("\n");
 
 
 
-// added adrian^
-    // int num = l.nweights; // l.nweights is number of weights in layer-adrian 
-    // if(!unchanged){//added if statement to check if layer is changed-adrian
-    //     fwrite(l.biases, sizeof(float), l.n, fp); //l.biases is layer biases-adrian
-    //     if (l.batch_normalize){
-    //         fwrite(l.scales, sizeof(float), l.n, fp);
-    //         fwrite(l.rolling_mean, sizeof(float), l.n, fp);
-    //         fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+    // print out 5 current and previous weights to compare and see if difference
+
+    // const int debug_weights_to_print = 5;
+    // printf("Layer %d first %d weights (current): ", layer_counter, debug_weights_to_print);
+    // for (int i = 0; i < debug_weights_to_print && i < l.nweights; ++i) {
+    //     printf("%f ", l.weights[i]);
+    // }
+    // printf("\n");
+
+    // if (previous_weights != NULL) {
+    //     printf("Layer %d first %d weights (previous): ", layer_counter, debug_weights_to_print);
+    //     for (int i = 0; i < debug_weights_to_print && i < previous_num_weights; ++i) {
+    //         printf("%f ", previous_weights[i]);
     //     }
-    //     fwrite(l.weights, sizeof(float), num, fp); // l.weight is layer weights-adrian
-    // }//
-    // if (!negligible_change) {
-    //         fwrite(l.biases, sizeof(float), l.n, fp);
-    //         if (l.batch_normalize) {
-    //             fwrite(l.scales, sizeof(float), l.n, fp);
-    //             fwrite(l.rolling_mean, sizeof(float), l.n, fp);
-    //             fwrite(l.rolling_variance, sizeof(float), l.n, fp);
-    //         }
-    //         fwrite(l.weights, sizeof(float), l.nweights, fp);
-    //     }
+    //     printf("\n");
+    // }
+
+
+    //printf("Processing Layer %d, Type: %d, Filters: %d\n", layer_index, l.type, l.n);
+
+    static int total_calls = 0;
+    total_calls++;
+    printf("save_convolutional_weights called %d times\n", total_calls);
+
+    //
+    //
+    //Debugging^
+
+
 
 
 
@@ -2021,23 +2067,30 @@ void save_convolutional_weights(layer l, FILE *fp) // change this to check for u
 
 
 //added adrian (in progress)
+//memory handling
 // Update the previous_weights variable with the current weights
     if (previous_weights != NULL) {
-        free(previous_weights); // Free the old weights
+        free(previous_weights); // Free old weights
     }
     previous_weights = (float *)malloc(l.nweights * sizeof(float)); // Allocate memory for the current weights
     if (previous_weights != NULL) {
-        memcpy(previous_weights, l.weights, l.nweights * sizeof(float)); // Copy the current weights
+        memcpy(previous_weights, l.weights, l.nweights * sizeof(float)); // Copy current weights
         previous_num_weights = l.nweights;
     }else {
         printf("Memory allocation failed for previous_weights.\n");
     }
 
-    layer_counter++;
-    // fclose(debug_fp); //(debug file closing)
 //added adrian^
 
 }
+
+
+
+
+
+
+
+
 
 
 
@@ -2120,6 +2173,9 @@ void save_weights_upto(network net, char *filename, int cutoff, int save_ema) //
     (*net.seen) = get_current_iteration(net) * net.batch * net.subdivisions; // remove this line, when you will save to weights-file both: seen & cur_iteration
     fwrite(net.seen, sizeof(uint64_t), 1, fp);
 
+
+
+// adrian 
     int i;
     for(i = 0; i < net.n && i < cutoff; ++i){
         layer l = net.layers[i];
@@ -2130,6 +2186,7 @@ void save_weights_upto(network net, char *filename, int cutoff, int save_ema) //
                     save_convolutional_weights_ema(l, fp);
                 }*/
 
+                // check this funtion also adrian 
                 save_convolutional_weights_ema(l, fp); // this is original code
             }
             else {
