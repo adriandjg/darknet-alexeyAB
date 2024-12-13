@@ -6,6 +6,12 @@
 extern "C" {
 #endif
 list *read_data_cfg(char *filename);
+
+//added by adrian 
+int get_epoch(); // Add this line
+extern int epoch;
+
+
 #ifdef __cplusplus
 }
 #endif
