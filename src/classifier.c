@@ -29,6 +29,8 @@ float *get_regression_values(char **labels, int n)
 
 void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear, int dontuse_opencv, int dont_show, int mjpeg_port, int calc_topk, int show_imgs, char* chart_path)
 {
+
+    
     int i;
 
     float avg_loss = -1;
@@ -57,6 +59,19 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
     }
     srand(time(0));
     network net = nets[0];
+
+    //
+    //
+    //added by adrian for debugging 
+    printf("Total number of layers in the network: %d\n", net.n);
+    for (int layer_index = 0; layer_index < net.n; ++layer_index) {
+        layer l = net.layers[layer_index];
+        printf("Layer %d: Type: %d, Filters: %d, Size: %dx%d, Stride: %d\n", layer_index, l.type, l.n, l.size, l.size, l.stride);
+    }
+    //
+    //
+    //
+
 
     int imgs = net.batch * net.subdivisions * ngpus;
 
@@ -171,6 +186,12 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
         avg_loss = avg_loss*.9 + loss*.1;
 
         i = get_current_batch(net);
+
+        //added by adrian to print current epoch
+        int epoch = (*net.seen) / train_images_num; // Calculate the current epoch
+        printf("Epoch: %d\n", epoch); // Print the current epoch
+        //
+
 
         int calc_topk_for_each = iter_topk + 2 * train_images_num / (net.batch * net.subdivisions);  // calculate TOPk for each 2 Epochs
         calc_topk_for_each = fmax(calc_topk_for_each, net.burn_in);

@@ -976,7 +976,7 @@ layer parse_shortcut(list *options, size_params params, network net)
 
     for (i = 0; i < n; ++i) {
         int index = layers[i];
-        assert(params.w == net.layers[index].out_w && params.h == net.layers[index].out_h);
+        //assert(params.w == net.layers[index].out_w && params.h == net.layers[index].out_h); // commented out to run resnet18(advice from manoj)
 
         if (params.w != net.layers[index].out_w || params.h != net.layers[index].out_h || params.c != net.layers[index].out_c)
             fprintf(stderr, " (%4d x%4d x%4d) + (%4d x%4d x%4d) \n",
@@ -1900,8 +1900,149 @@ void save_implicit_weights(layer l, FILE *fp)
     fwrite(l.weights, sizeof(float), num, fp);
 }
 
-void save_convolutional_weights(layer l, FILE *fp)
+
+
+
+
+
+
+
+
+
+//static int save_weights_counter = 0;                 // Tracks which epoch we're on
+
+
+static int global_save_counter = 0;  // Tracks total number of layer saves across epochs
+static float epoch_total_weight_diff = 0.0f;  // Tracks total weight differences this epoch
+int conv_layer_counter = 0; // Tracks the number of convolutional layers processed...added by adrian
+
+
+ typedef struct {
+        float *weights;
+        int num_weights;
+    } LayerWeights;
+
+    #define MAX_LAYERS 100 // Maximum number of layers you expect
+    LayerWeights previous_layer_weights[MAX_LAYERS] = {0};
+    LayerWeights current_layer_weights[MAX_LAYERS] = {0};
+
+    
+typedef struct {
+    int should_save;  // Flag indicating if layer should be saved
+    float last_saved_weights;  // Timestamp or iteration of last save
+} LayerSaveInfo;
+
+LayerSaveInfo layer_save_info[MAX_LAYERS] = {0};
+
+
+extern network net;  // Make sure this is accessible
+
+void save_convolutional_weights(layer l, FILE *fp) // change this to check for unchanged layers-adrian
 {
+
+
+    //printf("save_convolutional_weights: conv_layer_counter = %d\n", conv_layer_counter);
+    printf("Processing Convolutional Layer %d\n", conv_layer_counter);
+    //printf("Layer Properties: Type=%d, Filters=%d, Size=%d, Stride=%d, Inputs=%d\n",l.type, l.n, l.size, l.stride, l.inputs);
+
+
+    // Get the entry for the current layer
+     LayerWeights *prev = &previous_layer_weights[conv_layer_counter];
+
+
+
+    float totalDiff = 0.0f;
+    epoch_total_weight_diff += totalDiff;  // Add this layer's difference to epoch total
+
+    int significant_change = 0;  // Flag to track if we need to save this layer
+
+    
+    // Compare with previous weights if they exist
+    if (prev->weights != NULL && prev->num_weights == l.nweights) {
+        for (int i = 0; i < l.nweights; ++i) {
+            float diff = fabs(prev->weights[i] - l.weights[i]);
+            totalDiff += diff;
+        }
+        
+    float averageDiff = totalDiff / l.nweights;
+
+
+
+    float base_tolerance = 0.00001; // Minimum tolerance
+    float max_tolerance = 0.0001;     // Maximum tolerance
+    float dynamic_tolerance = base_tolerance; // Initialize with the base tolerance
+
+    if (averageDiff > 0) {
+        // Calculate dynamic tolerance using both average difference and network learning rate
+        dynamic_tolerance = totalDiff * sqrtf(net.learning_rate); //sqrt to normalize
+        
+        // Clamp between base and max tolerance
+        if (dynamic_tolerance < base_tolerance) {
+            dynamic_tolerance = base_tolerance;
+        }
+        if (dynamic_tolerance > max_tolerance) {
+            dynamic_tolerance = max_tolerance;
+        }
+    }
+
+
+    //printf("Layer %d: Total Diff: %f, Avg Diff: %f, Tolerance: %f\n", conv_layer_counter, totalDiff, averageDiff, dynamic_tolerance);
+
+    if (averageDiff > base_tolerance) {
+            significant_change = 1;
+            global_save_counter++;  // Increment global counter when layer will be saved
+
+            printf("Layer %d: Significant changes detected (avg diff: %f). Will save.\n", conv_layer_counter, averageDiff);
+            printf("\n=== Save Event ===\n");
+            printf("Layer: %d\n", conv_layer_counter);
+            printf("Average Diff: %.6f\n", averageDiff);
+            printf("Total Layer Saves (across all epochs): %d\n", global_save_counter);
+            printf("================\n\n");
+
+        } else {
+           printf("Layer %d: No significant changes (avg diff: %f). Skipping save.\n", conv_layer_counter, averageDiff);
+        }
+    } else {
+        // First time seeing this layer, must save it
+        significant_change = 1;
+        global_save_counter++;  // Increment for first-time saves too
+        printf("Layer %d: First time processing. Will save.\n", conv_layer_counter);
+        printf("\n=== Initial Layer Save ===\n");
+        printf("Layer: %d\n", conv_layer_counter);
+        printf("First time processing this layer\n");
+        printf("Total Layer Saves (across all epochs): %d\n", global_save_counter);
+        printf("======================\n\n");
+    }
+
+
+    // layer_save_info
+    layer_save_info[conv_layer_counter].should_save = significant_change;
+    
+
+   // Only save weights if there's a significant change
+    if (significant_change) {
+        // Save the weights to file
+        fwrite(l.biases, sizeof(float), l.n, fp);
+        if (l.batch_normalize) {
+            fwrite(l.scales, sizeof(float), l.n, fp);
+            fwrite(l.rolling_mean, sizeof(float), l.n, fp);
+            fwrite(l.rolling_variance, sizeof(float), l.n, fp);
+        }
+        fwrite(l.weights, sizeof(float), l.nweights, fp);
+        
+        // Update previous weights for next comparison
+        if (prev->weights != NULL) {
+            free(prev->weights);
+        }
+        prev->weights = (float *)malloc(l.nweights * sizeof(float));
+        if (prev->weights != NULL) {
+            memcpy(prev->weights, l.weights, l.nweights * sizeof(float));
+            prev->num_weights = l.nweights;
+        }
+
+    }
+
+
     if(l.binary){
         //save_convolutional_weights_binary(l, fp);
         //return;
@@ -1911,19 +2052,32 @@ void save_convolutional_weights(layer l, FILE *fp)
         pull_convolutional_layer(l);
     }
 #endif
-    int num = l.nweights;
-    fwrite(l.biases, sizeof(float), l.n, fp);
-    if (l.batch_normalize){
-        fwrite(l.scales, sizeof(float), l.n, fp);
-        fwrite(l.rolling_mean, sizeof(float), l.n, fp);
-        fwrite(l.rolling_variance, sizeof(float), l.n, fp);
-    }
-    fwrite(l.weights, sizeof(float), num, fp);
+
+
+
     //if(l.adam){
     //    fwrite(l.m, sizeof(float), num, fp);
     //    fwrite(l.v, sizeof(float), num, fp);
     //}
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 void save_convolutional_weights_ema(layer l, FILE *fp)
 {
@@ -1979,8 +2133,123 @@ void save_connected_weights(layer l, FILE *fp)
     }
 }
 
-void save_weights_upto(network net, char *filename, int cutoff, int save_ema)
+
+
+
+
+
+
+
+
+
+
+
+float previous_epoch_avg_weight = 0.0f; // Average weight for the previous epoch
+float current_epoch_total_weight = 0.0f; // Total weights in the current epoch
+int current_epoch_weight_count = 0; // Total number of weights processed in the current epoch
+int epoch_save_counter = 0;
+
+float calculate_weight_diff() {
+    if (current_epoch_weight_count == 0) {
+        return 0.0f; // Avoid division by zero
+    }
+
+    // Calculate average weight for the current epoch
+    float current_epoch_avg_weight = current_epoch_total_weight / current_epoch_weight_count;
+
+    // Compute the difference between current and previous epoch averages
+    float weight_diff = current_epoch_avg_weight - previous_epoch_avg_weight;
+
+    // Update the previous epoch average weight for the next epoch
+    previous_epoch_avg_weight = current_epoch_avg_weight;
+
+    // Reset current epoch metrics
+    current_epoch_total_weight = 0.0f;
+    current_epoch_weight_count = 0;
+
+    return weight_diff;
+}
+
+void process_layer_weights(layer l) {
+    // Example: Accumulate weights for a single layer
+    for (int i = 0; i < l.nweights; ++i) {
+        current_epoch_total_weight += l.weights[i];
+    }
+    current_epoch_weight_count += l.nweights;
+}
+
+
+int last_processed_epoch = -1; // Global variable to track the last processed epoch
+int layer_weights_initialized = 0; // Global flag to track initialization
+
+void save_weights_upto(network net, char *filename, int cutoff, int save_ema) // can also check for layer changes here -adrian 
 {
+
+
+// Reset the epoch total at the start of save_weights_upto
+    int epoch = (*net.seen) / net.train_images_num; // Calculate the current epoch
+
+    epoch_total_weight_diff = 0.0f;
+    conv_layer_counter = 0;
+
+
+// Detect epoch change and reset metrics
+    if (epoch != last_processed_epoch) {
+        if (last_processed_epoch != -1) {
+            // Print the summary for the previous epoch
+            float avg_weight_diff = epoch_total_weight_diff / conv_layer_counter;
+            float weight_diff = calculate_weight_diff();
+            printf("\n=== Epoch %d Summary ===\n", last_processed_epoch);
+            printf("Total layers processed: %d\n", conv_layer_counter);
+            printf("Total weight differences: %.6f\n", epoch_total_weight_diff);
+            printf("Average weight difference this epoch: %.6f\n", avg_weight_diff);
+            printf("Total saves this epoch: %d\n", epoch_save_counter); // Added
+            printf("=========================\n");
+        }
+
+        // Reset metrics for the new epoch
+        epoch_total_weight_diff = 0.0f;
+        conv_layer_counter = 0;
+        last_processed_epoch = epoch;
+        epoch_save_counter = 0; // Reset saves for the new epoch
+
+    }
+
+
+
+//added by adrian 
+if (!layer_weights_initialized) {
+        //printf("Initializing layer weights...\n");
+        for (int i = 0; i < MAX_LAYERS; ++i) {
+            if (current_layer_weights[i].weights != NULL) {
+                free(current_layer_weights[i].weights);
+                current_layer_weights[i].weights = NULL;
+            }
+            current_layer_weights[i].num_weights = 0;
+
+            if (previous_layer_weights[i].weights != NULL) {
+                free(previous_layer_weights[i].weights);
+                previous_layer_weights[i].weights = NULL;
+            }
+            previous_layer_weights[i].num_weights = 0;
+            
+            // Initialize save info
+            layer_save_info[i].should_save = 1;  // Save all layers first time
+            layer_save_info[i].last_saved_weights = 0;
+        }
+        layer_weights_initialized = 1;
+    }
+
+    conv_layer_counter = 0;
+
+
+
+//added by adrian^
+
+
+
+
+
 #ifdef GPU
     if(net.gpu_index >= 0){
         cuda_set_device(net.gpu_index);
@@ -1999,16 +2268,39 @@ void save_weights_upto(network net, char *filename, int cutoff, int save_ema)
     (*net.seen) = get_current_iteration(net) * net.batch * net.subdivisions; // remove this line, when you will save to weights-file both: seen & cur_iteration
     fwrite(net.seen, sizeof(uint64_t), 1, fp);
 
+
+
+// adrian 
+
     int i;
     for(i = 0; i < net.n && i < cutoff; ++i){
         layer l = net.layers[i];
         if (l.type == CONVOLUTIONAL && l.share_layer == NULL) {
-            if (save_ema) {
-                save_convolutional_weights_ema(l, fp);
+            if (save_ema) {    // another if statement can be added after this to check for unchanged weights
+                /*
+                if(l.weights =! ){           //trying implementation 
+                    save_convolutional_weights_ema(l, fp);
+                }*/
+
+                // check this funtion also adrian 
+                save_convolutional_weights_ema(l, fp); // this is original code
             }
             else {
                 save_convolutional_weights(l, fp);
+                //added by adrian 
+                //printf("save_weights_upto: Incrementing conv_layer_counter to %d\n", conv_layer_counter + 1);
+                conv_layer_counter++; // Increment after processing the layer
+                process_layer_weights(l);
+                epoch_save_counter++; // Increment saves for this epoch
+                // if (conv_layer_counter == 17){
+                //     int epoch_average_weight_change = epoch_total_weight_change/ 18;
+                //     printf("average weight change this epoch: %d\n", epoch_average_weight_change);
+                // }
             }
+
+
+
+
         } if (l.type == SHORTCUT && l.nweights > 0) {
             save_shortcut_weights(l, fp);
         } if (l.type == IMPLICIT) {
@@ -2070,8 +2362,49 @@ void save_weights_upto(network net, char *filename, int cutoff, int save_ema)
         }
         fflush(fp);
     }
+
+
+
+//added by adrian 
+ // At the end of save_weights_upto, print the epoch summary
+    // save_weights_counter++;
+    // float avg_weight_diff = epoch_total_weight_diff / conv_layer_counter;
+    
+    // printf("\n=== Epoch %d Summary ===\n", epoch);
+    // //printf("\n=== Save %d Summary ===\n", save_weights_counter);
+    // printf("Total layers processed: %d\n", conv_layer_counter);
+    // //printf("Total weight differences: %.6f\n", epoch_total_weight_diff);
+    // printf("Average weight difference: %.6f\n", avg_weight_diff);
+    // printf("Total saves this after this epoch: %d\n", global_save_counter);
+    // printf("=====================\n\n");
+    //added by adrian 
+
+
+
     fclose(fp);
+
+
+
+    //added by adrian 
+    // Print summary of saved layers
+    // printf("\nCheckpoint Summary:\n");
+    // for(i = 0; i < conv_layer_counter; i++) {
+    //     printf("Layer %d: %s\n", i, 
+    //            layer_save_info[i].should_save ? "Saved (changed)" : "Skipped (no change)");
+    // }
+   
 }
+
+
+
+
+
+
+
+
+
+
+
 void save_weights(network net, char *filename)
 {
     save_weights_upto(net, filename, net.n, 0);
